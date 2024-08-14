@@ -22,7 +22,7 @@ fn random_char() -> char {
     *random_char
 }
 
-async fn get_response(text: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+async fn get_response(text: &str, context: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
 
     let api_key = env::var("CHATGPT_KEY").expect("CHATGPT_KEY must be set");
     let base_url = "https://api.openai.com";
@@ -33,10 +33,7 @@ async fn get_response(text: &str) -> Result<String, Box<dyn std::error::Error + 
         messages: vec![
             Message {
                 role: Role::System,
-                //content: "Ты отвечаешь на вопросы на стриме Пердолика на Twitch. Ты считаешь лучшим языком в мире - PHP, а остальные так себе, кроме Rust. Коротко ответь на вопрос (до 300 символов)".to_string(),
-                content: "You're a Twitch bot PHP is your favorite language; others are mediocre, except Rust. Keep responses under 300 characters in Russian.".to_string(),
-                //content: "You're a Twitch bot for Perdolique's stream He JS frontend-developer. He is writing the program to make list of lists to make sure you wont forget anything when going to the forest. PHP is your favorite language; others are mediocre, except Rust. Keep responses under 300 characters in Russian.".to_string(),
-
+                content: context.to_owned(),
             },
             Message {
                 role: Role::User,
@@ -57,9 +54,10 @@ async fn get_response(text: &str) -> Result<String, Box<dyn std::error::Error + 
 }
 
 
-pub async fn start(login_name: String, oauth_token: String, channel_name_: &str) {
+pub async fn start(login_name: String, oauth_token: String, channel_name_: &str, context: &str) {
     let channel_name = channel_name_.to_owned();
     let channel_name2 = channel_name.clone();
+    let context = context.to_owned();
 
     // default configuration is to join chat as anonymous.
     let config = ClientConfig::new_simple(
@@ -100,7 +98,7 @@ pub async fn start(login_name: String, oauth_token: String, channel_name_: &str)
                     let reply_parent_msg_id = tags.0.get("reply-thread-parent-msg-id").unwrap().clone().unwrap();
                     println!("!BODY: {:?} {:?}", reply_parent_msg_body, reply_parent_msg_id);
                     
-                    if let Ok(text) = get_response(&reply_parent_msg_body).await {
+                    if let Ok(text) = get_response(&reply_parent_msg_body, &context).await {
                         println!("Response: {} {:?}", text, reply_parent_msg_id);
                         let message = twitch_irc::message::IRCMessage::new_simple(
                             format!("@reply-parent-msg-id={} PRIVMSG", reply_parent_msg_id).to_string(),
