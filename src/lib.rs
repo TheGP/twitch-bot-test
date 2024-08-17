@@ -56,7 +56,6 @@ async fn get_response(text: &str, context: &str) -> Result<String, Box<dyn std::
 
 pub async fn start(login_name: String, oauth_token: String, channel_name_: &str, context: &str) {
     let channel_name = channel_name_.to_owned();
-    let channel_name2 = channel_name.clone();
     let context = context.to_owned();
 
     // default configuration is to join chat as anonymous.
@@ -66,7 +65,11 @@ pub async fn start(login_name: String, oauth_token: String, channel_name_: &str,
     let (mut incoming_messages, client) =
         TwitchIRCClient::<SecureTCPTransport, StaticLoginCredentials>::new(config);
 
-    let client2 = client.clone();
+    // join a channel
+    // This function only returns an error if the passed channel login name is malformed,
+    // so in this simple case where the channel name is hardcoded we can ignore the potential
+    // error with `unwrap`.
+    client.join(channel_name.clone()).unwrap();
 
     // first thing you should do: start consuming incoming messages,
     // otherwise they will back up.
@@ -83,39 +86,48 @@ pub async fn start(login_name: String, oauth_token: String, channel_name_: &str,
                         format!("@reply-parent-msg-id={} PRIVMSG", msg.message_id).to_string(),
                         vec![format!("#{}", channel_name).to_string(), format!(". {} {}", "Иди нахрен", random_char())]
                     );
-                    client2.send_message(message).await.unwrap();
+                    client.send_message(message).await.unwrap();
                 }
 
                 if msg.message_text.contains("!ai") {
-                    //client2.say(channel_name.to_owned(), "@eugenebos1 Я тут".to_owned()).await.unwrap();
+                    //client.say(channel_name.to_owned(), "@eugenebos1 Я тут".to_owned()).await.unwrap();
                     println!("!ai message detected");
                     println!("!message: {:?}", msg);
 
                     let tags = msg.source.tags;
 
-                    let parent_body = tags.0.get("reply-parent-msg-body").unwrap();
-                    let reply_parent_msg_body = parent_body.clone().unwrap();
-                    let reply_parent_msg_id = tags.0.get("reply-thread-parent-msg-id").unwrap().clone().unwrap();
-                    println!("!BODY: {:?} {:?}", reply_parent_msg_body, reply_parent_msg_id);
-                    
-                    if let Ok(text) = get_response(&reply_parent_msg_body, &context).await {
-                        println!("Response: {} {:?}", text, reply_parent_msg_id);
-                        let message = twitch_irc::message::IRCMessage::new_simple(
-                            format!("@reply-parent-msg-id={} PRIVMSG", reply_parent_msg_id).to_string(),
-                            vec![format!("#{}", channel_name).to_string(), format!(". {}", text)]
-                        );
-                        client2.send_message(message).await.unwrap();
+                    if tags.0.contains_key("reply-parent-msg-body") && tags.0.contains_key("reply-thread-parent-msg-id") {
+                        let parent_body = tags.0.get("reply-parent-msg-body").unwrap();
+                        let reply_parent_msg_body = parent_body.clone().unwrap();
+                        let reply_parent_msg_id = tags.0.get("reply-thread-parent-msg-id").unwrap().clone().unwrap();
+                        println!("!BODY: {:?} {:?}", reply_parent_msg_body, reply_parent_msg_id);
+                        
+                        if let Ok(text) = get_response(&reply_parent_msg_body, &context).await {
+                            println!("Response: {} {:?}", text, reply_parent_msg_id);
+                            let message = twitch_irc::message::IRCMessage::new_simple(
+                                format!("@reply-parent-msg-id={} PRIVMSG", reply_parent_msg_id).to_string(),
+                                vec![format!("#{}", channel_name).to_string(), format!(". {}", text.replace("\n", " "))]
+                            );
+                            client.send_message(message).await.unwrap();
+                        }
+                    } else {
+                        let message = msg.message_text[4..].to_string();
+                        println!("!no parent detected: {}", message);
+
+                        if let Ok(text) = get_response(&message, &context).await {
+                            let message = twitch_irc::message::IRCMessage::new_simple(
+                                format!("@reply-parent-msg-id={} PRIVMSG", msg.message_id).to_string(),
+                                vec![format!("#{}", channel_name).to_string(), format!(". {}", text.replace("\n", " "))]
+                            );
+                            client.send_message(message).await.unwrap();
+                            println!("Response: {}", text);
+                        }
                     }
                 }
             }
         }
     });
 
-    // join a channel
-    // This function only returns an error if the passed channel login name is malformed,
-    // so in this simple case where the channel name is hardcoded we can ignore the potential
-    // error with `unwrap`.
-    client.join(channel_name2).unwrap();
 
     join_handle.await.unwrap();
 }
